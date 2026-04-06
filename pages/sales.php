@@ -1,6 +1,7 @@
 <?php
 session_start();
 include("../config/database.php");
+include("../config/paystack.php");
 
 // Check login
 if(!isset($_SESSION['user'])){
@@ -188,10 +189,9 @@ $result = mysqli_query($conn, $query);
                 </select>
                 
                 <div id="mobile_money_fields" style="display: none;">
-                    <input class="form-control mb-2" type="tel" name="mobile_number" id="mobile_number" placeholder="Mobile Money Number (e.g. 024XXXXXXX)">
-                    <small class="text-muted">The Customer will receive a payment prompt on their device</small>
+                    <small class="text-muted">Proceeding will launch the Paystack Mobile Money prompt.</small>
                 </div>
-                <button class="btn btn-primary w-100">Complete Sale</button>
+                <button class="btn btn-primary w-100" type="submit">Complete Sale</button>
             </form>
 
         </div>
@@ -200,7 +200,11 @@ $result = mysqli_query($conn, $query);
 </div>
 </div>
 
+<script src="https://js.paystack.co/v1/inline.js"></script>
 <script>
+const TOTAL_PESEWAS = <?php echo isset($total) ? $total * 100 : 0; ?>;
+const PAYSTACK_PUB = "<?php echo defined('PAYSTACK_PUBLIC_KEY') ? PAYSTACK_PUBLIC_KEY : ''; ?>";
+
 function selectProduct(card, productId) {
     document.querySelectorAll('.product-card').forEach(c => c.classList.remove('selected'));
     card.classList.add('selected');
@@ -216,19 +220,52 @@ document.documentElement.setAttribute('data-theme', savedTheme);
 function togglePhoneField() {
     const method = document.getElementById('payment_method').value;
     const phoneField = document.getElementById('mobile_money_fields');
-    const mobileInput = document.getElementById('mobile_number');
-    const saleForm = document.getElementById('sale_form');
-    
     phoneField.style.display = (method === 'Mobile Money') ? 'block' : 'none';
+}
+
+document.getElementById('sale_form').addEventListener('submit', function(e) {
+    const method = document.getElementById('payment_method').value;
     
     if (method === 'Mobile Money') {
-        mobileInput.required = true;
-        saleForm.action = '../actions/process_mobile_money.php';
-    } else {
-        mobileInput.required = false;
-        saleForm.action = '../actions/process_sale.php';
+        e.preventDefault(); // Stop normal form submit
+        
+        if (TOTAL_PESEWAS <= 0) {
+            alert('Cart is empty!');
+            return;
+        }
+        
+        if(!PAYSTACK_PUB) {
+            alert('Paystack Configuration Error: Missing Public Key');
+            return;
+        }
+
+        let handler = PaystackPop.setup({
+            key: PAYSTACK_PUB,
+            email: 'pos.customer@grocenix.com', // placeholder for anonymous POS
+            amount: TOTAL_PESEWAS,
+            currency: 'GHS',
+            channels: ['mobile_money'],
+            ref: 'POS_' + Math.floor((Math.random() * 1000000000) + 1),
+            callback: function(response) {
+                // Insert the reference into the form and submit
+                let form = document.getElementById('sale_form');
+                let hiddenToken = document.createElement('input');
+                hiddenToken.type = 'hidden';
+                hiddenToken.name = 'paystack_reference';
+                hiddenToken.value = response.reference;
+                form.appendChild(hiddenToken);
+                
+                // Allow it to submit securely
+                form.submit();
+            },
+            onClose: function() {
+                console.log('Payment modal closed');
+            }
+        });
+        
+        handler.openIframe();
     }
-}
+});
 </script>
 
 </body>

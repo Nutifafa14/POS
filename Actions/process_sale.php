@@ -7,18 +7,29 @@ $payment_method = $_POST['payment_method'] ?? $_GET['payment_method'] ?? 'Cash';
 // Eliminate dummy logic bypass:
 // Ensure Mobile Money goes through Paystack and isn't processed immediately by direct POST or spoofed GET
 if ($payment_method === 'Mobile Money') {
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        // Form submitted directly (e.g. JS didn't change action), reroute to Paystack
-        require_once("process_mobile_money.php");
-        exit();
-    } elseif (!isset($_SESSION['paystack_reference'])) {
-        // GET request without a verified payment session
-        header("Location: ../pages/sales.php?error=" . urlencode("Payment verification missing."));
+    if (!isset($_POST['paystack_reference'])) {
+        header("Location: ../pages/sales.php?error=" . urlencode("Payment verification missing. Please use the Paystack modal."));
         exit();
     }
-    // Finalize, and remove reference to avoid duplicate usage
-    unset($_SESSION['paystack_reference']);
-    unset($_SESSION['pending_payment_method']);
+    
+    $reference = $_POST['paystack_reference'];
+    require_once("../config/paystack.php");
+    
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, PAYSTACK_PAYMENT_URL . '/transaction/verify/' . rawurlencode($reference));
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Authorization: Bearer ' . PAYSTACK_SECRET_KEY
+    ]);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    
+    $response = curl_exec($ch);
+    curl_close($ch);
+    
+    $result = json_decode($response, true);
+    if (!isset($result['status']) || $result['status'] !== true || $result['data']['status'] !== 'success') {
+        header("Location: ../pages/sales.php?error=" . urlencode("Mobile Money Payment failed or was not completed."));
+        exit();
+    }
 }
 
 $total = 0;
