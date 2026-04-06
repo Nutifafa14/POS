@@ -180,15 +180,15 @@ $result = mysqli_query($conn, $query);
             }
             ?>
 
-            <form action="../actions/process_sale.php" method="POST">
-                <select class="form-control mb-2" name="payment_method">
+            <form id="sale_form" action="../actions/process_sale.php" method="POST">
+                <select class="form-control mb-2" id="payment_method" name="payment_method" onchange="togglePhoneField()">
                     <option value="Cash">Cash</option>
                     <option value="Mobile Money">Mobile Money</option>
                     <option value="Card">Card</option>
                 </select>
                 
                 <div id="mobile_money_fields" style="display: none;">
-                    <input class="form-control mb-2" type="tel" name="mobile_number" placeholder="Mobile Money Number">
+                    <input class="form-control mb-2" type="tel" name="mobile_number" id="mobile_number" placeholder="Mobile Money Number (e.g. 024XXXXXXX)">
                     <small class="text-muted">The Customer will receive a payment prompt on their device</small>
                 </div>
                 <button class="btn btn-primary w-100">Complete Sale</button>
@@ -216,7 +216,18 @@ document.documentElement.setAttribute('data-theme', savedTheme);
 function togglePhoneField() {
     const method = document.getElementById('payment_method').value;
     const phoneField = document.getElementById('mobile_money_fields');
+    const mobileInput = document.getElementById('mobile_number');
+    const saleForm = document.getElementById('sale_form');
+    
     phoneField.style.display = (method === 'Mobile Money') ? 'block' : 'none';
+    
+    if (method === 'Mobile Money') {
+        mobileInput.required = true;
+        saleForm.action = '../actions/process_mobile_money.php';
+    } else {
+        mobileInput.required = false;
+        saleForm.action = '../actions/process_sale.php';
+    }
 }
 </script>
 

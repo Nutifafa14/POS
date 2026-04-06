@@ -3,7 +3,12 @@ session_start();
 include("../config/database.php");
 include("../config/paystack.php");
 
-$phone = $_POST['customer_phone'];
+$phone = $_POST['mobile_number'] ?? $_POST['customer_phone'] ?? '';
+if(empty($phone)) {
+    header("Location: ../pages/sales.php?error=" . urlencode("Phone number is required."));
+    exit();
+}
+
 $total = 0;
 
 foreach($_SESSION['cart'] as $item){
@@ -14,15 +19,36 @@ foreach($_SESSION['cart'] as $item){
 $amount = $total * 100;
 
 // Format phone for Paystack — must be 233XXXXXXXXX format
-$phone = preg_replace('/^0/', '233', $phone);
+$clean_phone = preg_replace('/[^0-9]/', '', $phone);
+$formatted_phone = preg_replace('/^0/', '233', $clean_phone);
+
+// Determine Provider Dynamically
+$provider = 'mtn'; // default
+$prefix_local = '';
+
+// Get the local equivalent of the number to check the prefix (e.g. 024, 050)
+if(strpos($clean_phone, '233') === 0 && strlen($clean_phone) > 3) {
+    $prefix_local = '0' . substr($clean_phone, 3, 2);
+} else {
+    $prefix_local = substr($clean_phone, 0, 3);
+}
+
+$vod_prefixes = ['020', '050'];
+$tgo_prefixes = ['027', '057', '026', '056'];
+
+if (in_array($prefix_local, $vod_prefixes)) {
+    $provider = 'vod';
+} elseif (in_array($prefix_local, $tgo_prefixes)) {
+    $provider = 'tgo';
+}
 
 $fields = [
     'email'          => 'pos@grocenix.com', // a placeholder email
     'amount'         => $amount,
     'currency'       => 'GHS',
     'mobile_money'   => [
-        'phone'    => $phone,
-        'provider' => 'mtn' // options: mtn, vod (Vodafone), tgo (AirtelTigo)
+        'phone'    => $formatted_phone,
+        'provider' => $provider
     ]
 ];
 
@@ -41,14 +67,19 @@ curl_close($ch);
 
 $result = json_decode($response, true);
 
-if($result['status'] && $result['data']['status'] == 'send_otp'){
-    // Store reference in session for verification later
-    $_SESSION['paystack_reference'] = $result['data']['reference'];
-    $_SESSION['pending_payment_method'] = 'Mobile Money';
-    header("Location: ../pages/verify_payment.php");
-} else {
-    $error = $result['message'] ?? 'Payment initiation failed';
-    header("Location: ../pages/sales.php?error=" . urlencode($error));
+// Paystack MoMo charge typically returns 'pay_offline' or 'pending' when waiting for the user to approve the prompt.
+if(isset($result['status']) && $result['status'] === true && isset($result['data']['status'])){
+    $valid_statuses = ['send_otp', 'pay_offline', 'pending', 'success'];
+    if(in_array($result['data']['status'], $valid_statuses)){
+        // Store reference in session for verification later
+        $_SESSION['paystack_reference'] = $result['data']['reference'];
+        $_SESSION['pending_payment_method'] = 'Mobile Money';
+        header("Location: ../pages/verify_payment.php");
+        exit();
+    }
 }
+
+$error = $result['message'] ?? 'Payment initiation failed';
+header("Location: ../pages/sales.php?error=" . urlencode($error));
 exit();
 ?>
