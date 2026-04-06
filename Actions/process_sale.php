@@ -3,6 +3,24 @@ session_start();
 include("../config/database.php");
 
 $payment_method = $_POST['payment_method'] ?? $_GET['payment_method'] ?? 'Cash';
+
+// Eliminate dummy logic bypass:
+// Ensure Mobile Money goes through Paystack and isn't processed immediately by direct POST or spoofed GET
+if ($payment_method === 'Mobile Money') {
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        // Form submitted directly (e.g. JS didn't change action), reroute to Paystack
+        require_once("process_mobile_money.php");
+        exit();
+    } elseif (!isset($_SESSION['paystack_reference'])) {
+        // GET request without a verified payment session
+        header("Location: ../pages/sales.php?error=" . urlencode("Payment verification missing."));
+        exit();
+    }
+    // Finalize, and remove reference to avoid duplicate usage
+    unset($_SESSION['paystack_reference']);
+    unset($_SESSION['pending_payment_method']);
+}
+
 $total = 0;
 
 foreach($_SESSION['cart'] as $item){
